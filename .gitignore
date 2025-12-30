@@ -1,0 +1,25 @@
+﻿# .gitignore
+__pycache__/
+*.log
+.idea/
+.venv/
+*.hex
+*.cof
+*.cod
+*.lst
+*.o
+*.err
+*.map
+*.d
+*.mcp
+*.mcw
+*.p1
+*.pre
+*.as
+*.xm
+*.fun
+*.sdb
+*.sym
+
+Thumbs.db
+.vscode/
