@@ -13,7 +13,7 @@ Port ayarları ve zaman aşımları buradan yönetilir.
 
 # Seri Port Ayarları
 DEFAULT_BAUDRATE = 9600
-AC_BOARD_PORT = 3 # Varsayılan Board 1 Portu
+AC_BOARD_PORT = 10 # Varsayılan Board 1 Portu
 CURTAIN_BOARD_PORT = 5 # Varsayılan Board 2 Portu
 
 # Bağlantı Ayarları
