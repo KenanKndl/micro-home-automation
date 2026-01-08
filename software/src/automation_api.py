@@ -258,63 +258,86 @@ class CurtainControlSystemConnection(HomeAutomationSystemConnection):
     def update(self) -> None:
         """
         Rapor kapsamında tanımlanan sensör verilerini günceller.
+        ÖNEMLİ: Perde verisi 0-50 arası gelir, burada 2 ile çarpılıp %0-%100 yapılır.
         """
         if not self.serial_conn or not self.serial_conn.is_open:
             return
 
+        # PIC'in önceki işlemlerden kurtulması için minik bekleme
+        time.sleep(0.02)
+
+        # --- 1. Perde Durumu ---
         try:
-            # 1. Perde Durumu
             self._send_byte(const.CMD_CUR_GET_DESIRED_INT)
             c_int = self._read_byte()
             self._send_byte(const.CMD_CUR_GET_DESIRED_FRAC)
             c_frac = self._read_byte()
-            self.curtainStatus = c_int + (c_frac / 10.0)
+            raw_val = c_int + (c_frac / 10.0)
+            self.curtainStatus = raw_val * 2.0
 
-            # 2. Dış Sıcaklık
+        except Exception:
+            pass
+
+            # --- 2. Dış Sıcaklık ---
+        try:
             self._send_byte(const.CMD_CUR_GET_OUTDOOR_TEMP_INT)
             t_int = self._read_byte()
             self._send_byte(const.CMD_CUR_GET_OUTDOOR_TEMP_FRAC)
             t_frac = self._read_byte()
             self.outdoorTemperature = t_int + (t_frac / 10.0)
+        except Exception:
+            pass
 
-            # 3. Basınç
+        # --- 3. Basınç ---
+        try:
             self._send_byte(const.CMD_CUR_GET_PRESSURE_INT)
             p_int = self._read_byte()
             self._send_byte(const.CMD_CUR_GET_PRESSURE_FRAC)
             p_frac = self._read_byte()
             self.outdoorPressure = p_int + (p_frac / 10.0)
+        except Exception:
+            pass
 
-            # 4. Işık Şiddeti
+        # --- 4. Işık Şiddeti ---
+        try:
             self._send_byte(const.CMD_CUR_GET_LIGHT_INT)
             l_int = self._read_byte()
+            time.sleep(0.01)
             self._send_byte(const.CMD_CUR_GET_LIGHT_FRAC)
             l_frac = self._read_byte()
+
             self.lightIntensity = l_int + (l_frac / 10.0)
+            print(f"DEBUG: Işık Okundu -> {self.lightIntensity}")
 
         except Exception as e:
-            logger.error(f"Curtain Update Hatası: {e}")
+            logger.error(f"Light Error: {e}")
 
     def setCurtainStatus(self, status: float) -> bool:
         """
         Perde açıklık oranını ayarlar.
 
-        :param status: Açıklık yüzdesi (0-100).
-        :return: İşlem başarılıysa True.
+        ÖNEMLİ: 6 bit sınırına (0-63) takılmamak için değeri 2'ye bölüp gönderiyoruz.
+        Örnek: %100 -> 50 olarak gider. PIC bunu 20 ile çarpıp 1000 adıma çevirir.
         """
-        int_part, frac_part = self._float_to_parts(status)
+        # Gelen % değerini (örn: 100) yarıya indir (örn: 50)
+        status_scaled = status / 2.0
 
-        if int_part > 100:
-            int_part = 100
-            logger.warning("Perde değeri %100 ile sınırlandırıldı.")
+        int_part, frac_part = self._float_to_parts(status_scaled)
 
-        # Protokol gereği paketleme - Constant kullanımı düzeltildi
+        # Maksimum değer 50 olmalı (Orijinal 100'ün yarısı)
+        # Çünkü protokolde 6 bit yer var (max 63). 100 gönderirsek taşar.
+        if int_part > 50:
+            int_part = 50
+            logger.warning("Perde değeri ölçekli sınır (50) ile sınırlandırıldı.")
+
+        # Protokol gereği paketleme
         cmd_frac = const.MASK_SET_FRAC_HEADER | (frac_part & const.MASK_DATA_6BIT)
         self._send_byte(cmd_frac)
 
         cmd_int = const.MASK_SET_INT_HEADER | (int_part & const.MASK_DATA_6BIT)
         self._send_byte(cmd_int)
 
-        logger.info(f"SET CURTAIN -> %{status}")
+        logger.info(f"SET CURTAIN -> %{status} (Giden Ham Veri: {int_part})")
         return True
 
     # --- GETTER METHODS (UML Requirement) ---

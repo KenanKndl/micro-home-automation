@@ -285,7 +285,8 @@ class ModernHomeAutomationGUI:
                                                                                                       padx=(5, 0),
                                                                                                       pady=(12, 0))
         # Trend Oku (Artıyor/Azalıyor)
-        self.lbl_trend_ac = ctk.CTkLabel(val_box, text="", font=ctk.CTkFont(size=24)).pack(side="left", padx=(15, 0))
+        self.lbl_trend_ac = ctk.CTkLabel(val_box, text="", font=ctk.CTkFont(size=24))
+        self.lbl_trend_ac.pack(side="left", padx=(15, 0))
 
         # Metrikler (Fan Hızı ve Hedef Sıcaklık Barları)
         metrics = ctk.CTkFrame(frame, fg_color="transparent")
@@ -338,18 +339,39 @@ class ModernHomeAutomationGUI:
         self.lbl_cur_light = self.create_sensor_box(frame, 2, 0, "Işık Şiddeti", "Lux")
         self.lbl_cur_stat = self.create_sensor_box(frame, 2, 1, "Perde Açıklığı", "%", color=THEME["secondary"])
 
-        # Perde Kontrol Alanı (Slider)
+        # --- Perde Kontrol Alanı (Slider)
         ctrl = ctk.CTkFrame(frame, fg_color=THEME["bg_card"], corner_radius=12)
         ctrl.grid(row=4, column=0, columnspan=2, sticky="ew", padx=25, pady=25)
 
         ctk.CTkLabel(ctrl, text="Perde Pozisyon Kontrolü", font=ctk.CTkFont(size=12, weight="bold"),
                      text_color=THEME["text_sub"]).pack(anchor="w", padx=20, pady=(15, 5))
 
-        self.slider_curtain = ctk.CTkSlider(ctrl, from_=0, to=100, number_of_steps=100, height=20,
+        # Slider container
+        self.curtain_slider_wrap = ctk.CTkFrame(ctrl, fg_color="transparent")
+        self.curtain_slider_wrap.pack(fill="x", padx=20, pady=10)
+
+        self.slider_curtain = ctk.CTkSlider(self.curtain_slider_wrap, from_=0, to=100, number_of_steps=100, height=20,
                                             progress_color=THEME["secondary"], button_color="white",
                                             button_hover_color=THEME["secondary"])
         self.slider_curtain.set(0)
-        self.slider_curtain.pack(fill="x", padx=20, pady=10)
+        self.slider_curtain.pack(fill="x")
+
+        # “Blur/engel” overlay (CustomTkinter gerçek blur yapmaz; ama opak panel ile aynı etki)
+        self.curtain_lock_overlay = ctk.CTkFrame(
+            self.curtain_slider_wrap,
+            fg_color=THEME["bg_panel"],  # koyu bir katman
+            corner_radius=10
+        )
+        self.curtain_lock_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        self.lbl_curtain_lock = ctk.CTkLabel(
+            self.curtain_lock_overlay,
+            text="GÜNDÜZ MODU: Perde kontrolü kilitli\n(Gece olunca aktif olur)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=THEME["text_sub"],
+            justify="center"
+        )
+        self.lbl_curtain_lock.pack(expand=True)
 
         self.btn_set_curtain = ctk.CTkButton(ctrl, text="POZİSYONU UYGULA", command=self.cmd_set_curtain, height=40,
                                              fg_color=THEME["action"], hover_color=THEME["action_hov"],
@@ -476,20 +498,52 @@ class ModernHomeAutomationGUI:
                 self.bar_target["label"].configure(text=f"{targ:.1f} °C")
                 self.bar_target["prog"].set(targ / 50)
 
-            # --- PERDE VERİLERİNİ GÜNCELLE ---
-            if self.curtain_connected:
-                self.lbl_cur_temp["label"].configure(
-                    text=f"{self.curtain_api.getOutdoorTemp():.1f} {self.lbl_cur_temp['unit']}")
-                self.lbl_cur_press["label"].configure(
-                    text=f"{self.curtain_api.getOutdoorPress():.1f} {self.lbl_cur_press['unit']}")
-                self.lbl_cur_light["label"].configure(
-                    text=f"{self.curtain_api.getLightIntensity():.1f} {self.lbl_cur_light['unit']}")
+                # --- PERDE VERİLERİNİ GÜNCELLE ---
+                if self.curtain_connected:
+                    self.lbl_cur_temp["label"].configure(
+                        text=f"{self.curtain_api.getOutdoorTemp():.1f} {self.lbl_cur_temp['unit']}")
+                    self.lbl_cur_press["label"].configure(
+                        text=f"{self.curtain_api.getOutdoorPress():.1f} {self.lbl_cur_press['unit']}")
+                    self.lbl_cur_light["label"].configure(
+                        text=f"{self.curtain_api.getLightIntensity():.1f} {self.lbl_cur_light['unit']}")
 
-                cur_val = self.curtain_api.curtainStatus
-                self.lbl_cur_stat["label"].configure(text=f"%{cur_val:.0f}")
+                    cur_val = self.curtain_api.curtainStatus
+                    self.lbl_cur_stat["label"].configure(text=f"%{cur_val:.0f}")
 
-        except Exception:
-            pass
+                    lux = self.curtain_api.getLightIntensity()
+
+                    is_night = lux < 12.0
+
+                    if not hasattr(self, "_last_lux"):
+                        self._last_lux = lux
+
+                    if abs(lux - self._last_lux) >= 0.1:
+                        self.log_message(f"LDR Lux güncellendi: {lux:.1f} Lux", "info")
+                        self._last_lux = lux
+
+                    # Gece ise KİLİTLE (Disabled), Gündüz ise AÇ (Normal)
+
+                    if is_night:
+                        # GECE MODU -> KULLANICI KİLİTLİ
+                        self.slider_curtain.configure(state="disabled")
+                        self.btn_set_curtain.configure(state="disabled")
+
+                        # Kullanıcıya neden kilitli olduğunu söyleyen yazıyı göster
+                        self.curtain_lock_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+                        self.lbl_curtain_lock.configure(text="GECE MODU AKTİF\nOtomatik Kapatıldı\nKontrol Kilitli")
+
+                    else:
+                        # GÜNDÜZ MODU -> KULLANICI SERBEST
+                        self.slider_curtain.configure(state="normal")
+                        self.btn_set_curtain.configure(state="normal")
+
+                        # Kilitleme yazısını kaldır
+                        self.curtain_lock_overlay.place_forget()
+
+
+        except Exception as e:
+            print(f"GUI Update Hatası: {e}")
+
         # 200 ms sonra bu fonksiyonu tekrar çağır (Sonsuz Döngü)
         self.root.after(200, self.update_gui_loop)
 
